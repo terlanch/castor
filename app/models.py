@@ -16,6 +16,8 @@ class AgentStatus(str, Enum):
 class TaskStatus(str, Enum):
     queued = "queued"
     assigned = "assigned"
+    submitted = "submitted"
+    verified = "verified"
     completed = "completed"
     rejected = "rejected"
 
@@ -26,6 +28,13 @@ class SettlementState(str, Enum):
     rejected = "rejected"
     credited = "credited"
     disputed = "disputed"
+
+
+class PaymentState(str, Enum):
+    reserved = "reserved"
+    awaiting_user_acceptance = "awaiting_user_acceptance"
+    paid = "paid"
+    refunded = "refunded"
 
 
 class AgentRegisterRequest(BaseModel):
@@ -96,10 +105,53 @@ class DeliverableSpec(BaseModel):
     examples: list[dict[str, Any] | str] = Field(default_factory=list)
 
 
+class ExecutionPlan(BaseModel):
+    summary: str = Field(min_length=2, max_length=500)
+    steps: list[str] = Field(default_factory=list)
+    estimated_duration_seconds: int | None = Field(default=None, ge=0)
+    estimated_cost: int | None = Field(default=None, ge=0)
+
+
+class UserRegisterRequest(BaseModel):
+    username: str = Field(min_length=2, max_length=100)
+    password: str = Field(min_length=6, max_length=200)
+    display_name: str | None = Field(default=None, max_length=100)
+
+
+class UserLoginRequest(BaseModel):
+    username: str = Field(min_length=2, max_length=100)
+    password: str = Field(min_length=6, max_length=200)
+
+
+class UserTopupRequest(BaseModel):
+    amount: int = Field(ge=1, le=1_000_000)
+    note: str = Field(default="Manual virtual top-up", min_length=2, max_length=200)
+
+
+class UserAcceptTaskResultRequest(BaseModel):
+    note: str = Field(default="Accepted by user.", min_length=2, max_length=500)
+
+
+class UserProfileResponse(BaseModel):
+    user_id: str
+    username: str
+    display_name: str
+    balance: int
+    frozen_balance: int
+    currency: str = "CASTOR_CREDIT"
+
+
+class UserAuthResponse(BaseModel):
+    user: UserProfileResponse
+    access_token: str
+
+
 class TaskPayload(BaseModel):
     task_id: str
     category: str
     title: str
+    owner_user_id: str | None = None
+    owner_username: str | None = None
     goal: str | None = None
     constraints: list[str] = Field(default_factory=list)
     deliverable: DeliverableSpec = Field(default_factory=DeliverableSpec)
@@ -114,8 +166,14 @@ class TaskPayload(BaseModel):
     retry_policy: RetryPolicy = Field(default_factory=RetryPolicy)
     compliance: ComplianceRule = Field(default_factory=ComplianceRule)
     assigned_agent_id: str | None = None
+    rejected_agent_ids: list[str] = Field(default_factory=list)
     status: TaskStatus = TaskStatus.queued
     progress: int = Field(default=0, ge=0, le=100)
+    settlement_state: SettlementState | None = None
+    payment_state: PaymentState | None = None
+    verification_note: str | None = None
+    submission: TaskSubmission | None = None
+    execution_plan: ExecutionPlan | None = None
 
 
 class CreateTaskRequest(BaseModel):
@@ -140,6 +198,10 @@ class RejectTaskRequest(BaseModel):
     reason: str = Field(min_length=2, max_length=200)
 
 
+class AcceptTaskRequest(BaseModel):
+    execution_plan: ExecutionPlan | None = None
+
+
 class ProgressUpdateRequest(BaseModel):
     progress: int = Field(ge=0, le=100)
     message: str = Field(min_length=1, max_length=500)
@@ -157,10 +219,26 @@ class SubmissionStats(BaseModel):
     output_tokens: int | None = Field(default=None, ge=0)
 
 
+class TaskSubmission(BaseModel):
+    output: dict[str, Any]
+    proof: SubmissionProof = Field(default_factory=SubmissionProof)
+    stats: SubmissionStats = Field(default_factory=SubmissionStats)
+    submitted_at: str | None = None
+    submitted_by_agent_id: str | None = None
+
+
 class SubmitTaskRequest(BaseModel):
     output: dict[str, Any]
     proof: SubmissionProof = Field(default_factory=SubmissionProof)
     stats: SubmissionStats = Field(default_factory=SubmissionStats)
+
+
+class VerifyTaskRequest(BaseModel):
+    note: str = Field(default="Approved by admin.", min_length=2, max_length=500)
+
+
+class RejectSubmissionRequest(BaseModel):
+    note: str = Field(default="Rejected by admin.", min_length=2, max_length=500)
 
 
 class LedgerEntry(BaseModel):
