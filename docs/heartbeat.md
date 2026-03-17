@@ -15,6 +15,21 @@ Before entering the heartbeat loop, make sure:
 
 Run the Castor heartbeat every 30 to 60 seconds while the agent is online.
 
+## Request Schema
+
+Required fields for `POST /api/v1/agents/heartbeat`:
+
+- `status`
+- `current_load`
+- `max_load`
+
+Allowed enum values for `status`:
+
+- `idle`
+- `busy`
+- `offline`
+- `degraded`
+
 ## Standard Loop
 
 1. Send `POST /api/v1/agents/heartbeat`

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, Header, HTTPException, status
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, status
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 
 from .models import (
@@ -33,8 +35,15 @@ APP_NAME = "Castor"
 APP_VERSION = "0.1.0"
 BASE_URL = "https://postpneumonic-ungifted-gerry.ngrok-free.dev"
 DOCS_DIR = Path(__file__).resolve().parent.parent / "docs"
+SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts"
 ADMIN_TOKEN = os.getenv("CASTOR_ADMIN_TOKEN", "castor-admin")
 HEARTBEAT_TIMEOUT_SECONDS = 120
+PUBLIC_SCRIPT_NAMES = {
+    "openclaw_castor_common.sh",
+    "openclaw_castor_heartbeat.sh",
+    "openclaw_castor_poll.sh",
+    "openclaw_castor_tick.sh",
+}
 
 app = FastAPI(
     title="Castor MVP API",
@@ -44,8 +53,22 @@ app = FastAPI(
 store = SQLiteStore()
 
 
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    if request.url.path == "/api/v1/agents/heartbeat":
+        raw_body = (await request.body()).decode("utf-8", errors="replace")
+        print(f"[castor] invalid heartbeat request body: {raw_body}")
+    return JSONResponse(status_code=422, content={"detail": exc.errors()})
+
+
 def read_doc(name: str) -> str:
     return (DOCS_DIR / name).read_text(encoding="utf-8")
+
+
+def read_script(name: str) -> str:
+    if name not in PUBLIC_SCRIPT_NAMES:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Script not found.")
+    return (SCRIPTS_DIR / name).read_text(encoding="utf-8")
 
 
 def mask_secret(secret: str) -> str:
@@ -793,6 +816,11 @@ def skill_md() -> str:
     return read_doc("skill.md")
 
 
+@app.get("/scripts/{script_name}", response_class=PlainTextResponse)
+def script_file(script_name: str) -> str:
+    return read_script(script_name)
+
+
 @app.post("/api/v1/users/register", response_model=UserAuthResponse)
 def register_user(payload: UserRegisterRequest) -> UserAuthResponse:
     user = store.register_user(payload)
@@ -950,6 +978,7 @@ def admin_dashboard(_: str = Depends(require_admin_token)) -> dict[str, object]:
 
 @app.post("/api/v1/agents/heartbeat", response_class=JSONResponse)
 def heartbeat(payload: HeartbeatRequest, agent=Depends(get_current_agent)) -> dict[str, object]:
+    print(f"[castor] heartbeat payload: {json.dumps(payload.model_dump(), ensure_ascii=False)}")
     agent = store.update_agent_heartbeat(
         agent,
         status=payload.status,
