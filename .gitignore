@@ -1,6 +1,26 @@
+# Python
 .venv/
 __pycache__/
+*.pyc
 .pytest_cache/
-data/*.db
-data/*.db-shm
-data/*.db-wal
+.mypy_cache/
+
+# Env / secrets
+.env
+.env.*
+*.pem
+*.key
+
+# Backend runtime data
+backend/data/*.db
+backend/data/uploads/
+backend/data/*.log
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
+# OS / IDE
+.DS_Store
+.idea/
+.vscode/

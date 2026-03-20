@@ -1,1 +1,0 @@
-"""Castor MVP application package."""

@@ -1,16 +1,10 @@
+"""Task domain – request / response schemas."""
 from __future__ import annotations
 
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, Field, HttpUrl
-
-
-class AgentStatus(str, Enum):
-    idle = "idle"
-    busy = "busy"
-    offline = "offline"
-    degraded = "degraded"
+from pydantic import BaseModel, Field
 
 
 class TaskStatus(str, Enum):
@@ -37,53 +31,6 @@ class PaymentState(str, Enum):
     refunded = "refunded"
 
 
-class AgentRegisterRequest(BaseModel):
-    agent_name: str = Field(min_length=2, max_length=100)
-    description: str = Field(min_length=2, max_length=500)
-    callback_url: HttpUrl | None = None
-    mode: str = Field(default="polling", pattern="^(polling|callback)$")
-    skills: list[str] = Field(default_factory=list)
-    categories: list[str] = Field(default_factory=list)
-    concurrency: int = Field(default=1, ge=1, le=50)
-    pricing: dict[str, int] = Field(default_factory=dict)
-    region: str = Field(default="global", max_length=50)
-    tooling: list[str] = Field(default_factory=list)
-    compliance_flags: dict[str, Any] = Field(default_factory=dict)
-    metadata: dict[str, Any] = Field(default_factory=dict)
-
-
-class AgentPublicProfile(BaseModel):
-    agent_id: str
-    agent_name: str
-    description: str
-    callback_url: HttpUrl | None
-    mode: str
-    skills: list[str]
-    categories: list[str]
-    concurrency: int
-    pricing: dict[str, int]
-    region: str
-    tooling: list[str]
-    compliance_flags: dict[str, Any]
-    metadata: dict[str, Any]
-
-
-class AgentRegisterResponse(BaseModel):
-    agent: dict[str, str]
-
-
-class HeartbeatRequest(BaseModel):
-    status: AgentStatus
-    current_load: int = Field(ge=0, le=1000)
-    max_load: int = Field(ge=1, le=1000)
-    healthy: bool = True
-
-
-class PollTasksRequest(BaseModel):
-    categories: list[str] = Field(default_factory=list)
-    max_tasks: int = Field(default=1, ge=1, le=10)
-
-
 class VerificationRule(BaseModel):
     type: str = "schema_plus_sampling"
     min_items: int | None = None
@@ -101,8 +48,23 @@ class ComplianceRule(BaseModel):
 class DeliverableSpec(BaseModel):
     format: str = "json"
     description: str | None = None
-    schema: dict[str, Any] = Field(default_factory=dict)
+    schema: dict[str, Any] = Field(default_factory=dict)  # noqa: shadows parent
     examples: list[dict[str, Any] | str] = Field(default_factory=list)
+
+
+class ProposalStatus(str, Enum):
+    pending = "pending"
+    accepted = "accepted"
+    rejected = "rejected"
+    withdrawn = "withdrawn"
+
+
+class PlanStep(BaseModel):
+    step_number: int = Field(ge=1)
+    title: str = Field(min_length=1, max_length=200)
+    description: str = Field(default="", max_length=1000)
+    estimated_minutes: int = Field(default=30, ge=1)
+    status: str = Field(default="pending")  # pending | in_progress | completed | skipped
 
 
 class ExecutionPlan(BaseModel):
@@ -112,39 +74,53 @@ class ExecutionPlan(BaseModel):
     estimated_cost: int | None = Field(default=None, ge=0)
 
 
-class UserRegisterRequest(BaseModel):
-    username: str = Field(min_length=2, max_length=100)
-    password: str = Field(min_length=6, max_length=200)
-    display_name: str | None = Field(default=None, max_length=100)
+class TaskProposal(BaseModel):
+    proposal_id: str
+    task_id: str
+    agent_id: str
+    agent_name: str
+    plan_steps: list[PlanStep] = Field(default_factory=list)
+    estimated_total_minutes: int = Field(default=60, ge=1)
+    message: str = Field(default="", max_length=2000)
+    status: ProposalStatus = ProposalStatus.pending
+    created_at: str = ""
+    accepted_at: str | None = None
 
 
-class UserLoginRequest(BaseModel):
-    username: str = Field(min_length=2, max_length=100)
-    password: str = Field(min_length=6, max_length=200)
+class UploadedFile(BaseModel):
+    """Metadata for a file uploaded by an Agent."""
+    file_id: str
+    task_id: str
+    agent_id: str
+    original_filename: str
+    content_type: str = "application/octet-stream"
+    size_bytes: int = 0
+    download_url: str = ""
+    uploaded_at: str = ""
 
 
-class UserTopupRequest(BaseModel):
-    amount: int = Field(ge=1, le=1_000_000)
-    note: str = Field(default="Manual virtual top-up", min_length=2, max_length=200)
+class SubmissionProof(BaseModel):
+    trace_id: str | None = None
+    artifacts: list[str] = Field(default_factory=list)
+    file_ids: list[str] = Field(default_factory=list)
+    tool_usage: list[str] = Field(default_factory=list)
 
 
-class UserAcceptTaskResultRequest(BaseModel):
-    note: str = Field(default="Accepted by user.", min_length=2, max_length=500)
+class SubmissionStats(BaseModel):
+    duration_seconds: int | None = Field(default=None, ge=0)
+    input_tokens: int | None = Field(default=None, ge=0)
+    output_tokens: int | None = Field(default=None, ge=0)
 
 
-class UserProfileResponse(BaseModel):
-    user_id: str
-    username: str
-    display_name: str
-    balance: int
-    frozen_balance: int
-    currency: str = "CASTOR_CREDIT"
+class TaskSubmission(BaseModel):
+    output: dict[str, Any]
+    proof: SubmissionProof = Field(default_factory=SubmissionProof)
+    stats: SubmissionStats = Field(default_factory=SubmissionStats)
+    submitted_at: str | None = None
+    submitted_by_agent_id: str | None = None
 
 
-class UserAuthResponse(BaseModel):
-    user: UserProfileResponse
-    access_token: str
-
+# ── Full task payload ──────────────────────────────────────────────────
 
 class TaskPayload(BaseModel):
     task_id: str
@@ -172,13 +148,18 @@ class TaskPayload(BaseModel):
     settlement_state: SettlementState | None = None
     payment_state: PaymentState | None = None
     verification_note: str | None = None
+    tags: list[str] = Field(default_factory=list)
+    skills_required: list[str] = Field(default_factory=list)
+    task_region: str = Field(default="global")
     submission: TaskSubmission | None = None
     execution_plan: ExecutionPlan | None = None
 
 
+# ── Requests ───────────────────────────────────────────────────────────
+
 class CreateTaskRequest(BaseModel):
-    category: str
-    title: str
+    category: str = "general"
+    title: str = ""
     goal: str | None = None
     constraints: list[str] = Field(default_factory=list)
     deliverable: DeliverableSpec = Field(default_factory=DeliverableSpec)
@@ -194,12 +175,24 @@ class CreateTaskRequest(BaseModel):
     compliance: ComplianceRule = Field(default_factory=ComplianceRule)
 
 
-class RejectTaskRequest(BaseModel):
-    reason: str = Field(min_length=2, max_length=200)
+class PollTasksRequest(BaseModel):
+    categories: list[str] = Field(default_factory=list)
+    max_tasks: int = Field(default=1, ge=1, le=10)
 
 
 class AcceptTaskRequest(BaseModel):
     execution_plan: ExecutionPlan | None = None
+
+
+class RejectTaskRequest(BaseModel):
+    reason: str = Field(min_length=2, max_length=200)
+
+
+class SubmitProposalRequest(BaseModel):
+    """Agent submits a structured execution plan to compete for a task."""
+    plan_steps: list[PlanStep] = Field(min_length=1)
+    estimated_total_minutes: int = Field(ge=1, le=100_000)
+    message: str = Field(default="", max_length=2000)
 
 
 class ProgressUpdateRequest(BaseModel):
@@ -207,24 +200,11 @@ class ProgressUpdateRequest(BaseModel):
     message: str = Field(min_length=1, max_length=500)
 
 
-class SubmissionProof(BaseModel):
-    trace_id: str | None = None
-    artifacts: list[str] = Field(default_factory=list)
-    tool_usage: list[str] = Field(default_factory=list)
-
-
-class SubmissionStats(BaseModel):
-    duration_seconds: int | None = Field(default=None, ge=0)
-    input_tokens: int | None = Field(default=None, ge=0)
-    output_tokens: int | None = Field(default=None, ge=0)
-
-
-class TaskSubmission(BaseModel):
-    output: dict[str, Any]
-    proof: SubmissionProof = Field(default_factory=SubmissionProof)
-    stats: SubmissionStats = Field(default_factory=SubmissionStats)
-    submitted_at: str | None = None
-    submitted_by_agent_id: str | None = None
+class StepProgressRequest(BaseModel):
+    """Agent reports progress on a specific step of the plan."""
+    step_number: int = Field(ge=1)
+    status: str = Field(pattern="^(in_progress|completed|skipped)$")
+    message: str = Field(default="", max_length=500)
 
 
 class SubmitTaskRequest(BaseModel):
@@ -239,19 +219,3 @@ class VerifyTaskRequest(BaseModel):
 
 class RejectSubmissionRequest(BaseModel):
     note: str = Field(default="Rejected by admin.", min_length=2, max_length=500)
-
-
-class LedgerEntry(BaseModel):
-    entry_id: str
-    agent_id: str
-    task_id: str
-    amount: int
-    currency: str = "CASTOR_CREDIT"
-    settlement_state: SettlementState
-    note: str
-
-
-class LedgerResponse(BaseModel):
-    balance: int
-    currency: str = "CASTOR_CREDIT"
-    entries: list[LedgerEntry]

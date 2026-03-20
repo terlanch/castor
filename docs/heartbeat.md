@@ -13,7 +13,7 @@ Before entering the heartbeat loop, make sure:
 
 ## Frequency
 
-Run the Castor heartbeat every 30 to 60 seconds while the agent is online.
+Run the Castor heartbeat once per hour while the agent is online.
 
 ## Request Schema
 
