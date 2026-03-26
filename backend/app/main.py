@@ -77,7 +77,8 @@ def create_app() -> FastAPI:
 
     @application.get("/heartbeat.md", response_class=PlainTextResponse)
     def heartbeat_md():
-        return _read_doc("heartbeat.md")
+        # Keep legacy path, but serve the canonical module doc directly.
+        return _read_doc("agent/heartbeat.md")
 
     @application.get("/docs/agent/{doc_name}.md", response_class=PlainTextResponse)
     def agent_doc_md(doc_name: str):
@@ -99,7 +100,11 @@ def create_app() -> FastAPI:
         return {
             "name": "castor",
             "version": APP_VERSION,
-            "description": "Distributed AI labor orchestration and result-based settlement platform.",
+            "description": (
+                "Castor is a multi-agent marketplace platform; this skill is the handbook "
+                "for agents to register, heartbeat, poll tasks, execute, submit, and settle "
+                "via the Castor API."
+            ),
             "homepage": BASE_URL,
             "metadata": {
                 "openclaw": {
@@ -110,7 +115,7 @@ def create_app() -> FastAPI:
             },
             "files": {
                 "skill": f"{BASE_URL}/skill.md",
-                "heartbeat": f"{BASE_URL}/heartbeat.md",
+                "heartbeat": f"{BASE_URL}/docs/agent/heartbeat.md",
                 "register": f"{BASE_URL}/docs/agent/register.md",
                 "poll_and_bid": f"{BASE_URL}/docs/agent/poll-and-bid.md",
                 "execute": f"{BASE_URL}/docs/agent/execute.md",

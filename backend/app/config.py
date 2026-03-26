@@ -4,8 +4,12 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 # ── Paths ──────────────────────────────────────────────────────────────
 BACKEND_DIR = Path(__file__).resolve().parent.parent
+# backend/.env；不覆盖已在 shell / 系统中设置的同名变量
+load_dotenv(BACKEND_DIR / ".env")
 DATA_DIR = BACKEND_DIR / "data"
 DOCS_DIR = BACKEND_DIR / "docs"
 SCRIPTS_DIR = BACKEND_DIR / "scripts"
@@ -38,9 +42,12 @@ HEARTBEAT_TIMEOUT_SECONDS = int(
 )
 
 # ── LLM (task understanding layer) ────────────────────────────────────
-LLM_API_KEY = os.getenv("CASTOR_LLM_API_KEY", "")
+# CASTOR_LLM_API_KEY 优先；未设置时读取 ARK_API_KEY（与火山引擎文档一致）
+LLM_API_KEY = os.getenv("CASTOR_LLM_API_KEY") or os.getenv("ARK_API_KEY", "")
 LLM_BASE_URL = os.getenv("CASTOR_LLM_BASE_URL", "https://api.openai.com/v1")
 LLM_MODEL = os.getenv("CASTOR_LLM_MODEL", "gpt-4o-mini")
+# 设为 0 时不传 response_format（部分 OpenAI 兼容网关不支持 json_object）
+LLM_JSON_OBJECT_MODE = os.getenv("CASTOR_LLM_JSON_OBJECT_MODE", "1") != "0"
 
 # ── Database ───────────────────────────────────────────────────────────
 DB_PATH = Path(os.getenv("CASTOR_DB_PATH", str(DATA_DIR / "castor.db")))

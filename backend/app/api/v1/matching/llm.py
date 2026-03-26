@@ -13,7 +13,12 @@ from typing import Any
 
 import httpx
 
-from ....config import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
+from ....config import (
+    LLM_API_KEY,
+    LLM_BASE_URL,
+    LLM_JSON_OBJECT_MODE,
+    LLM_MODEL,
+)
 from .taxonomy import TAG_DIMENSIONS
 
 logger = logging.getLogger("castor.llm")
@@ -73,15 +78,16 @@ def _call_llm(description: str, max_budget: int) -> dict[str, Any]:
         "Authorization": f"Bearer {LLM_API_KEY}",
         "Content-Type": "application/json",
     }
-    body = {
+    body: dict[str, Any] = {
         "model": LLM_MODEL,
         "messages": [
             {"role": "system", "content": _SYSTEM_PROMPT},
             {"role": "user", "content": description},
         ],
         "temperature": 0.2,
-        "response_format": {"type": "json_object"},
     }
+    if LLM_JSON_OBJECT_MODE:
+        body["response_format"] = {"type": "json_object"}
 
     with httpx.Client(timeout=30) as client:
         resp = client.post(url, headers=headers, json=body)

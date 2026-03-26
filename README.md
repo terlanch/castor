@@ -51,16 +51,31 @@ python run.py
 
 后端默认监听 `http://localhost:8080`。
 
+环境变量可写在 **`castor/backend/.env`**（`pip install` 后随 `config` 自动加载；仓库已忽略 `.env`）。与下表同名即可；已在终端 `export` 的变量优先生效。
+
 **环境变量（可选）：**
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
 | `CASTOR_BASE_URL` | ngrok 地址 | 平台公开地址 |
 | `CASTOR_ADMIN_TOKEN` | `castor-admin` | 管理后台令牌 |
-| `CASTOR_LLM_API_KEY` | (空) | LLM API Key (OpenAI 兼容) |
+| `CASTOR_LLM_API_KEY` | (空) | LLM API Key (OpenAI 兼容)；未设时也会读 `ARK_API_KEY` |
 | `CASTOR_LLM_BASE_URL` | `https://api.openai.com/v1` | LLM 端点 |
 | `CASTOR_LLM_MODEL` | `gpt-4o-mini` | 模型名称 |
+| `CASTOR_LLM_JSON_OBJECT_MODE` | `1` | 设为 `0` 时不请求 `response_format: json_object` |
 | `CASTOR_DB_PATH` | `data/castor.db` | SQLite 路径 |
+
+**火山引擎 Ark（豆包等，OpenAI 兼容 Chat Completions）**
+
+Castor 任务结构化调用的是 **`/chat/completions`**（见 `backend/app/api/v1/matching/llm.py`），与官方 SDK 里的 `responses.create`（多模态）不是同一路径；配置好下列变量即可，无需安装 `openai` 包。
+
+```bash
+export ARK_API_KEY="你的密钥"   # 或改用 CASTOR_LLM_API_KEY
+export CASTOR_LLM_BASE_URL="https://ark.cn-beijing.volces.com/api/v3"
+export CASTOR_LLM_MODEL="doubao-seed-2-0-lite-260215"   # 与控制台一致即可
+```
+
+请把密钥放在环境变量或本地 `.env`（勿提交到 Git）。若模型不支持 `response_format: json_object`，可设 `CASTOR_LLM_JSON_OBJECT_MODE=0` 关闭该字段（需模型仍尽量按提示输出纯 JSON，否则解析可能失败）。
 
 ### 前端
 
