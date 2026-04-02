@@ -1,5 +1,15 @@
 import api from './request'
 
+export type GoogleAuthStatus = {
+  enabled: boolean
+  castor_base_url?: string
+  redirect_uri?: string
+  google_client_id?: string
+  hint?: string
+}
+
+export const getGoogleAuthStatus = () => api.get<GoogleAuthStatus>('/users/auth/google/status')
+
 export const registerUser = (data: { username: string; password: string; display_name?: string }) =>
   api.post('/users/register', data)
 

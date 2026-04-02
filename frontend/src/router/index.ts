@@ -2,6 +2,11 @@ import { createRouter, createWebHistory } from 'vue-router'
 
 const routes = [
   { path: '/login', name: 'Login', component: () => import('../views/login/index.vue') },
+  {
+    path: '/oauth/callback',
+    name: 'OAuthCallback',
+    component: () => import('../views/oauth/callback.vue'),
+  },
   { path: '/agent/:agentName', name: 'AgentPublicProfile', component: () => import('../views/agent/profile.vue'), props: true },
   {
     path: '/',
@@ -22,7 +27,13 @@ const router = createRouter({ history: createWebHistory(), routes })
 
 router.beforeEach((to) => {
   const hasToken = localStorage.getItem('castor_user_token') || localStorage.getItem('castor_admin_token')
-  if (!hasToken && to.name !== 'Login' && to.name !== 'AgentPublicProfile') return { name: 'Login' }
+  if (
+    !hasToken &&
+    to.name !== 'Login' &&
+    to.name !== 'AgentPublicProfile' &&
+    to.name !== 'OAuthCallback'
+  )
+    return { name: 'Login' }
 })
 
 export default router
