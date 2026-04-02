@@ -1,0 +1,25 @@
+services:
+  castor-backend:
+    container_name: castor-backend
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    env_file:
+      - ./backend/.env
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./backend/data:/app/data
+    restart: unless-stopped
+
+  castor-frontend:
+    container_name: castor-frontend
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    depends_on:
+      - castor-backend
+    ports:
+      - "3000:80"
+    restart: unless-stopped
+
