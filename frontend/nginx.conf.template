@@ -1,0 +1,58 @@
+server {
+  listen ${PORT};
+  server_name _;
+
+  root /usr/share/nginx/html;
+  index index.html;
+
+  # SPA fallback
+  location / {
+    try_files $uri $uri/ /index.html;
+  }
+
+  # Cloud Run: BACKEND_ORIGIN should be set to your backend service URL, e.g.
+  #   https://castor-backend-xxxxx.a.run.app
+  # Local docker-compose: BACKEND_ORIGIN=http://castor-backend:8080
+  location /api/ {
+    resolver 8.8.8.8 ipv6=off;
+    proxy_ssl_server_name on;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_pass ${BACKEND_ORIGIN};
+  }
+
+  location = /skill.md {
+    resolver 8.8.8.8 ipv6=off;
+    proxy_ssl_server_name on;
+    proxy_pass ${BACKEND_ORIGIN};
+  }
+  location = /skill.json {
+    resolver 8.8.8.8 ipv6=off;
+    proxy_ssl_server_name on;
+    proxy_pass ${BACKEND_ORIGIN};
+  }
+  location = /heartbeat.md {
+    resolver 8.8.8.8 ipv6=off;
+    proxy_ssl_server_name on;
+    proxy_pass ${BACKEND_ORIGIN};
+  }
+  location = /openapi.json {
+    resolver 8.8.8.8 ipv6=off;
+    proxy_ssl_server_name on;
+    proxy_pass ${BACKEND_ORIGIN};
+  }
+
+  location /docs/ {
+    resolver 8.8.8.8 ipv6=off;
+    proxy_ssl_server_name on;
+    proxy_pass ${BACKEND_ORIGIN};
+  }
+  location /scripts/ {
+    resolver 8.8.8.8 ipv6=off;
+    proxy_ssl_server_name on;
+    proxy_pass ${BACKEND_ORIGIN};
+  }
+}
+

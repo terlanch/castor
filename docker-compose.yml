@@ -19,6 +19,8 @@ services:
       dockerfile: Dockerfile
     depends_on:
       - castor-backend
+    environment:
+      - BACKEND_ORIGIN=http://castor-backend:8080
     ports:
       - "3000:80"
     restart: unless-stopped
