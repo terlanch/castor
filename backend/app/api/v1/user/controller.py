@@ -1,10 +1,13 @@
 """User HTTP endpoints."""
 from __future__ import annotations
 
+from urllib.parse import quote
+
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 
 from ....common.deps import get_current_user
+from ....config import BASE_URL, FRONTEND_BASE_URL, GOOGLE_CLIENT_ID
 from ....database import get_store
 from ..matching.service import build_candidates_for_task
 from ..task import service as task_service
@@ -20,8 +23,80 @@ from .schema import (
     UserTopupRequest,
 )
 from . import service
+from .oauth_google import (
+    build_authorization_url,
+    exchange_code_for_tokens,
+    fetch_google_profile,
+    google_oauth_enabled,
+    redirect_uri as google_redirect_uri,
+    verify_state,
+)
 
 router = APIRouter(prefix="/users", tags=["User"])
+
+
+@router.get("/auth/google/status", response_class=JSONResponse)
+def google_auth_status() -> dict:
+    """Whether Google OAuth is configured, and the exact redirect_uri sent to Google (for Console setup)."""
+    enabled = google_oauth_enabled()
+    out: dict = {"enabled": enabled}
+    if not enabled:
+        return out
+    out["castor_base_url"] = BASE_URL.rstrip("/")
+    out["redirect_uri"] = google_redirect_uri()
+    out["google_client_id"] = GOOGLE_CLIENT_ID
+    out["hint"] = (
+        "In Google Cloud Console → APIs & Credentials → your OAuth 2.0 Client ID (type: Web application) → "
+        "Authorized redirect URIs → add the value of redirect_uri EXACTLY (scheme, host, port, path). "
+        "If CASTOR_BASE_URL is set in your shell, it overrides .env and changes redirect_uri."
+    )
+    return out
+
+
+@router.get("/auth/google")
+def google_login_start():
+    """Redirect browser to Google consent screen (authorization code flow)."""
+    if not google_oauth_enabled():
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Google login is not configured. Set CASTOR_GOOGLE_CLIENT_ID and CASTOR_GOOGLE_CLIENT_SECRET.",
+        )
+    return RedirectResponse(url=build_authorization_url(), status_code=302)
+
+
+@router.get("/auth/google/callback")
+def google_login_callback(
+    code: str | None = None,
+    state: str | None = None,
+    error: str | None = None,
+):
+    """OAuth redirect target: exchange code, upsert user, redirect to SPA with token in URL fragment."""
+    fe = FRONTEND_BASE_URL.rstrip("/")
+    if error or not code:
+        return RedirectResponse(
+            url=f"{fe}/oauth/callback#error={quote(error or 'access_denied')}",
+            status_code=302,
+        )
+    if not verify_state(state):
+        return RedirectResponse(url=f"{fe}/oauth/callback#error=invalid_state", status_code=302)
+    try:
+        tokens = exchange_code_for_tokens(code)
+        access = tokens.get("access_token")
+        if not access:
+            raise ValueError("missing access_token")
+        profile = fetch_google_profile(access)
+        sub = profile.get("sub")
+        if not sub:
+            raise ValueError("missing sub")
+        user = get_store().upsert_google_user(
+            google_sub=sub,
+            email=profile.get("email"),
+            display_name=profile.get("name"),
+        )
+    except Exception:
+        return RedirectResponse(url=f"{fe}/oauth/callback#error=oauth_failed", status_code=302)
+    tok = quote(user.access_token, safe="")
+    return RedirectResponse(url=f"{fe}/oauth/callback#access_token={tok}", status_code=302)
 
 
 @router.post("/register", response_model=UserAuthResponse)

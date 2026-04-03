@@ -100,6 +100,10 @@ class AgentClaimSession:
     updated_at: str = ""
 
 
+# Users created via Google OAuth use this placeholder; local password login is rejected.
+PASSWORD_OAUTH_PLACEHOLDER = "__castor_oauth_no_password__"
+
+
 @dataclass
 class UserRecord:
     user_id: str
@@ -109,6 +113,7 @@ class UserRecord:
     access_token: str
     balance: int = 0
     frozen_balance: int = 0
+    google_sub: str | None = None
 
 
 # ── Store ──────────────────────────────────────────────────────────────
@@ -212,6 +217,22 @@ class SQLiteStore:
             )
             self._migrate_schema()
             self._conn.commit()
+            self._migrate_schema()
+
+    def _migrate_schema(self) -> None:
+        """Lightweight SQLite migrations for existing DB files."""
+        with self._lock:
+            cols = {row[1] for row in self._conn.execute("PRAGMA table_info(users)")}
+            if "google_sub" not in cols:
+                self._conn.execute("ALTER TABLE users ADD COLUMN google_sub TEXT")
+                self._conn.commit()
+            self._conn.execute(
+                """
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google_sub
+                ON users(google_sub) WHERE google_sub IS NOT NULL AND google_sub != ''
+                """
+            )
+            self._conn.commit()
 
     def _migrate_schema(self) -> None:
         """Add columns / tables for existing databases."""
@@ -287,6 +308,7 @@ class SQLiteStore:
 
     def _load_users(self) -> None:
         for row in self._conn.execute("SELECT * FROM users").fetchall():
+            gsub = row["google_sub"] if "google_sub" in row.keys() else None
             user = UserRecord(
                 user_id=row["user_id"],
                 username=row["username"],
@@ -295,6 +317,7 @@ class SQLiteStore:
                 access_token=row["access_token"],
                 balance=row["balance"],
                 frozen_balance=row["frozen_balance"],
+                google_sub=gsub,
             )
             self.users[user.user_id] = user
             self.user_tokens[user.access_token] = user.user_id
@@ -499,17 +522,18 @@ class SQLiteStore:
                 """
                 INSERT INTO users (
                     user_id, username, password_hash, display_name,
-                    access_token, balance, frozen_balance
-                ) VALUES (?,?,?,?,?,?,?)
+                    access_token, balance, frozen_balance, google_sub
+                ) VALUES (?,?,?,?,?,?,?,?)
                 ON CONFLICT(user_id) DO UPDATE SET
                     username=excluded.username, password_hash=excluded.password_hash,
                     display_name=excluded.display_name, access_token=excluded.access_token,
-                    balance=excluded.balance, frozen_balance=excluded.frozen_balance
+                    balance=excluded.balance, frozen_balance=excluded.frozen_balance,
+                    google_sub=excluded.google_sub
                 """,
                 (
                     user.user_id, user.username, user.password_hash,
                     user.display_name, user.access_token,
-                    user.balance, user.frozen_balance,
+                    user.balance, user.frozen_balance, user.google_sub,
                 ),
             )
             self._conn.commit()
@@ -672,6 +696,12 @@ class SQLiteStore:
                 return u
         return None
 
+    def find_user_by_google_sub(self, google_sub: str) -> UserRecord | None:
+        for u in self.users.values():
+            if u.google_sub == google_sub:
+                return u
+        return None
+
     def get_user_by_token(self, access_token: str) -> UserRecord | None:
         uid = self.user_tokens.get(access_token)
         return self.users.get(uid) if uid else None
@@ -694,8 +724,52 @@ class SQLiteStore:
 
     def login_user(self, payload: UserLoginRequest) -> UserRecord | None:
         user = self.find_user_by_username(payload.username)
-        if not user or user.password_hash != hash_password(payload.password):
+        if not user:
             return None
+        if user.password_hash == PASSWORD_OAUTH_PLACEHOLDER:
+            return None
+        if user.password_hash != hash_password(payload.password):
+            return None
+        return user
+
+    def upsert_google_user(
+        self,
+        *,
+        google_sub: str,
+        email: str | None,
+        display_name: str | None,
+    ) -> UserRecord:
+        existing = self.find_user_by_google_sub(google_sub)
+        if existing:
+            if display_name and display_name != existing.display_name:
+                existing.display_name = display_name
+                self._save_user(existing)
+            return existing
+
+        # Prefer email as username if unused; if taken by another account, fall back to sub-based id.
+        base_username: str
+        if email and (e := email.strip().lower()[:100]):
+            other = self.find_user_by_username(e)
+            if not other:
+                base_username = e
+            else:
+                base_username = f"g_{google_sub}"
+        else:
+            base_username = f"g_{google_sub}"
+        if self.find_user_by_username(base_username):
+            base_username = f"g_{google_sub}_{uuid4().hex[:8]}"
+
+        user = UserRecord(
+            user_id=str(uuid4()),
+            username=base_username,
+            password_hash=PASSWORD_OAUTH_PLACEHOLDER,
+            display_name=(display_name or email or base_username)[:100],
+            access_token=f"castor_usr_{token_urlsafe(24)}",
+            google_sub=google_sub,
+        )
+        self.users[user.user_id] = user
+        self.user_tokens[user.access_token] = user.user_id
+        self._save_user(user)
         return user
 
     def topup_user(self, user: UserRecord, amount: int) -> UserRecord:

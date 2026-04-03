@@ -42,6 +42,19 @@
               <el-button type="primary" native-type="submit" :loading="loading" size="large" class="login-btn">
                 <span v-if="!loading">Sign In</span>
               </el-button>
+              <p v-if="googleRedirectUri" class="oauth-uri-hint">
+                Google Cloud 控制台「已获授权的重定向 URI」须<strong>完全一致</strong>添加：<br />
+                <code class="oauth-uri-code">{{ googleRedirectUri }}</code>
+              </p>
+              <el-button
+                v-if="googleEnabled"
+                size="large"
+                class="google-btn"
+                :disabled="loading"
+                @click="startGoogleLogin"
+              >
+                Continue with Google
+              </el-button>
               <el-button size="large" class="register-btn" @click="handleUserRegister" :loading="loading">
                 Create Account
               </el-button>
@@ -69,19 +82,36 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive } from 'vue'
+import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { User, Lock, Key } from '@element-plus/icons-vue'
 import { useAuthStore } from '../../stores/auth'
-import { loginUser, registerUser } from '../../api/user'
+import { loginUser, registerUser, getGoogleAuthStatus } from '../../api/user'
 
 const router = useRouter()
 const auth = useAuthStore()
 const tab = ref('user')
 const loading = ref(false)
+const googleEnabled = ref(false)
+const googleRedirectUri = ref('')
 const userForm = reactive({ username: '', password: '' })
 const adminToken = ref('')
+
+onMounted(async () => {
+  try {
+    const { data } = await getGoogleAuthStatus()
+    googleEnabled.value = !!data?.enabled
+    googleRedirectUri.value = data?.redirect_uri || ''
+  } catch {
+    googleEnabled.value = false
+    googleRedirectUri.value = ''
+  }
+})
+
+function startGoogleLogin() {
+  window.location.href = '/api/v1/users/auth/google'
+}
 
 function particleStyle(i: number) {
   const x = Math.random() * 100
@@ -336,6 +366,20 @@ function handleAdminLogin() {
   color: #00d4ff !important;
   background: rgba(0, 212, 255, 0.05) !important;
 }
+.google-btn {
+  width: 100%;
+  margin-top: 10px !important;
+  margin-left: 0 !important;
+  height: 44px !important;
+  font-weight: 600 !important;
+  background: #fff !important;
+  color: #1f2937 !important;
+  border: 1px solid #e5e7eb !important;
+}
+.google-btn:hover {
+  background: #f9fafb !important;
+  border-color: #d1d5db !important;
+}
 
 /* Footer */
 .footer-text {
@@ -343,5 +387,21 @@ function handleAdminLogin() {
   font-size: 11px;
   color: #334155;
   letter-spacing: 0.04em;
+}
+.oauth-uri-hint {
+  font-size: 11px;
+  line-height: 1.5;
+  color: #64748b;
+  margin: 0 0 10px;
+  word-break: break-all;
+}
+.oauth-uri-code {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 6px 8px;
+  background: rgba(0, 0, 0, 0.35);
+  border-radius: 6px;
+  color: #94f9ff;
+  font-size: 10px;
 }
 </style>

@@ -31,7 +31,7 @@ APP_VERSION = "0.2.0"
 BASE_URL = os.getenv(
     "CASTOR_BASE_URL",
     "http://localhost:8080",
-)
+).strip()
 FRONTEND_BASE_URL = os.getenv(
     "CASTOR_FRONTEND_BASE_URL",
     "http://localhost:3000",
@@ -55,6 +55,18 @@ LLM_BASE_URL = os.getenv("CASTOR_LLM_BASE_URL", "https://api.openai.com/v1")
 LLM_MODEL = os.getenv("CASTOR_LLM_MODEL", "gpt-4o-mini")
 # 设为 0 时不传 response_format（部分 OpenAI 兼容网关不支持 json_object）
 LLM_JSON_OBJECT_MODE = os.getenv("CASTOR_LLM_JSON_OBJECT_MODE", "1") != "0"
+
+# ── Google OAuth (user login) ─────────────────────────────────────────
+# Create OAuth client in Google Cloud Console; redirect URI must match exactly.
+GOOGLE_CLIENT_ID = os.getenv("CASTOR_GOOGLE_CLIENT_ID", "")
+GOOGLE_CLIENT_SECRET = os.getenv("CASTOR_GOOGLE_CLIENT_SECRET", "")
+# Optional override; default is {BASE_URL}/api/v1/users/auth/google/callback
+GOOGLE_OAUTH_REDIRECT_URI = os.getenv("CASTOR_GOOGLE_OAUTH_REDIRECT_URI", "").strip()
+# HMAC secret for OAuth state (defaults to client secret if unset)
+GOOGLE_OAUTH_STATE_SECRET = os.getenv(
+    "CASTOR_GOOGLE_OAUTH_STATE_SECRET",
+    os.getenv("CASTOR_GOOGLE_CLIENT_SECRET", "castor-oauth-state"),
+)
 
 # ── Database ───────────────────────────────────────────────────────────
 DB_PATH = Path(os.getenv("CASTOR_DB_PATH", str(DATA_DIR / "castor.db")))

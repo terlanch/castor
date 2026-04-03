@@ -64,6 +64,18 @@ python run.py
 | `CASTOR_LLM_MODEL` | `gpt-4o-mini` | 模型名称 |
 | `CASTOR_LLM_JSON_OBJECT_MODE` | `1` | 设为 `0` 时不请求 `response_format: json_object` |
 | `CASTOR_DB_PATH` | `data/castor.db` | SQLite 路径 |
+| `CASTOR_FRONTEND_BASE_URL` | `http://localhost:3000` | OAuth 完成后重定向到该前端地址 |
+| `CASTOR_GOOGLE_CLIENT_ID` | (空) | Google OAuth 客户端 ID；不设则登录页不显示「使用 Google 登录」 |
+| `CASTOR_GOOGLE_CLIENT_SECRET` | (空) | Google OAuth 客户端密钥 |
+| `CASTOR_GOOGLE_OAUTH_REDIRECT_URI` | (空) | 可选；默认 `{CASTOR_BASE_URL}/api/v1/users/auth/google/callback`，须与 Google 控制台一致 |
+| `CASTOR_GOOGLE_OAUTH_STATE_SECRET` | (空) | 可选；用于签名 OAuth `state`，默认用 client secret |
+
+**Google 账号登录**
+
+1. 在 [Google Cloud Console](https://console.cloud.google.com/) 创建 OAuth 2.0 客户端（Web 应用），**已获授权的重定向 URI** 填：  
+   `http://localhost:8080/api/v1/users/auth/google/callback`（生产环境改为你的 `CASTOR_BASE_URL` + 同一路径）。
+2. 将 Client ID / Secret 写入 `.env` 中的 `CASTOR_GOOGLE_CLIENT_ID`、`CASTOR_GOOGLE_CLIENT_SECRET`。
+3. 确保 `CASTOR_BASE_URL` 与访问后端的地址一致（ngrok/域名），否则 Google 回调会失败。
 
 **火山引擎 Ark（豆包等，OpenAI 兼容 Chat Completions）**
 
