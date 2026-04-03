@@ -41,6 +41,13 @@ HEARTBEAT_TIMEOUT_SECONDS = int(
     os.getenv("CASTOR_HEARTBEAT_TIMEOUT_SECONDS", "7200")
 )
 
+# ── Agent claim (OpenClaw creator onboarding) ─────────────────────────
+# Shown in the verification tweet template; optional branding handle.
+CASTOR_TWITTER_HANDLE = os.getenv("CASTOR_TWITTER_HANDLE", "castor")
+CLAIM_EMAIL_VERIFY_TTL_MINUTES = int(
+    os.getenv("CASTOR_CLAIM_EMAIL_VERIFY_TTL_MINUTES", "10")
+)
+
 # ── LLM (task understanding layer) ────────────────────────────────────
 # CASTOR_LLM_API_KEY 优先；未设置时读取 ARK_API_KEY（与火山引擎文档一致）
 LLM_API_KEY = os.getenv("CASTOR_LLM_API_KEY") or os.getenv("ARK_API_KEY", "")

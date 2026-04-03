@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 
 const routes = [
   { path: '/login', name: 'Login', component: () => import('../views/login/index.vue') },
+  { path: '/claim/:token', name: 'AgentClaim', component: () => import('../views/claim/index.vue'), props: true },
   { path: '/agent/:agentName', name: 'AgentPublicProfile', component: () => import('../views/agent/profile.vue'), props: true },
   {
     path: '/',
@@ -20,9 +21,11 @@ const routes = [
 
 const router = createRouter({ history: createWebHistory(), routes })
 
+const publicRouteNames = new Set(['Login', 'AgentPublicProfile', 'AgentClaim'])
+
 router.beforeEach((to) => {
   const hasToken = localStorage.getItem('castor_user_token') || localStorage.getItem('castor_admin_token')
-  if (!hasToken && to.name !== 'Login' && to.name !== 'AgentPublicProfile') return { name: 'Login' }
+  if (!hasToken && !publicRouteNames.has(String(to.name))) return { name: 'Login' }
 })
 
 export default router

@@ -77,6 +77,27 @@ class AgentRecord:
             "verification_pass_rate": 1.0,
         }
     )
+    claim_token: str = ""
+    owner_user_id: str | None = None
+    claimed_at: str | None = None
+
+
+@dataclass
+class AgentClaimSession:
+    session_id: str
+    agent_id: str
+    claim_token: str
+    email: str
+    username: str
+    password_hash: str
+    email_verify_token: str
+    email_verify_expires_at: str
+    status: str = "pending_email"
+    email_verified_at: str | None = None
+    tweet_url: str | None = None
+    tweet_verified_at: str | None = None
+    created_at: str = ""
+    updated_at: str = ""
 
 
 @dataclass
@@ -112,6 +133,9 @@ class SQLiteStore:
         self.progress_logs: dict[str, list[dict[str, Any]]] = {}
         self.candidate_pool: dict[str, list[CandidateMatch]] = {}
         self.uploaded_files: dict[str, UploadedFile] = {}  # file_id → UploadedFile
+        self.claim_sessions: dict[str, AgentClaimSession] = {}  # session_id → session
+        self.claim_verify_tokens: dict[str, str] = {}  # email_verify_token → session_id
+        self.claim_tokens: dict[str, str] = {}  # claim_token → agent_id
 
         self._init_db()
         self._load_state()
@@ -186,7 +210,67 @@ class SQLiteStore:
                 );
                 """
             )
+            self._migrate_schema()
             self._conn.commit()
+
+    def _migrate_schema(self) -> None:
+        """Add columns / tables for existing databases."""
+        def _cols(table: str) -> set[str]:
+            cur = self._conn.execute(f"PRAGMA table_info({table})")
+            # Use column name from pragma (row[1] can mis-read with some Row layouts).
+            return {str(row["name"]) for row in cur.fetchall()}
+
+        def _add_column_if_absent(table: str, col: str, ddl: str) -> None:
+            if col in _cols(table):
+                return
+            try:
+                self._conn.execute(ddl)
+            except sqlite3.OperationalError as e:
+                err = str(e).lower()
+                if "duplicate column name" in err:
+                    return
+                raise
+
+        # SQLite rejects ADD COLUMN ... UNIQUE; enforce uniqueness via index below.
+        _add_column_if_absent("agents", "claim_token", "ALTER TABLE agents ADD COLUMN claim_token TEXT")
+        _add_column_if_absent("agents", "owner_user_id", "ALTER TABLE agents ADD COLUMN owner_user_id TEXT")
+        _add_column_if_absent("agents", "claimed_at", "ALTER TABLE agents ADD COLUMN claimed_at TEXT")
+
+        self._conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS agent_claim_sessions (
+                session_id TEXT PRIMARY KEY,
+                agent_id TEXT NOT NULL,
+                claim_token TEXT NOT NULL,
+                email TEXT NOT NULL,
+                username TEXT NOT NULL,
+                password_hash TEXT NOT NULL,
+                email_verify_token TEXT NOT NULL UNIQUE,
+                email_verify_expires_at TEXT NOT NULL,
+                email_verified_at TEXT,
+                tweet_url TEXT,
+                tweet_verified_at TEXT,
+                status TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            """
+        )
+
+        # Backfill claim_token for legacy agents
+        for row in self._conn.execute(
+            "SELECT agent_id FROM agents WHERE claim_token IS NULL OR claim_token = ''"
+        ).fetchall():
+            tok = token_urlsafe(32)
+            self._conn.execute(
+                "UPDATE agents SET claim_token = ? WHERE agent_id = ?",
+                (tok, row["agent_id"]),
+            )
+
+        self._conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uix_agents_claim_token "
+            "ON agents(claim_token)"
+        )
 
     # ── Load ───────────────────────────────────────────────────────────
 
@@ -199,6 +283,7 @@ class SQLiteStore:
         self._load_progress_logs()
         self._load_candidate_pool()
         self._load_uploaded_files()
+        self._load_claim_sessions()
 
     def _load_users(self) -> None:
         for row in self._conn.execute("SELECT * FROM users").fetchall():
@@ -215,10 +300,13 @@ class SQLiteStore:
             self.user_tokens[user.access_token] = user.user_id
 
     def _load_agents(self) -> None:
+        self.claim_tokens.clear()
         for row in self._conn.execute("SELECT * FROM agents").fetchall():
             registration = AgentRegisterRequest.model_validate(
                 json.loads(row["registration_json"])
             )
+            raw_ct = row["claim_token"] if row["claim_token"] else ""
+            ct = raw_ct or token_urlsafe(32)
             agent = AgentRecord(
                 agent_id=row["agent_id"],
                 api_key=row["api_key"],
@@ -231,9 +319,43 @@ class SQLiteStore:
                 last_heartbeat_at=row["last_heartbeat_at"],
                 balance=row["balance"],
                 reputation=json.loads(row["reputation_json"]),
+                claim_token=ct,
+                owner_user_id=row["owner_user_id"],
+                claimed_at=row["claimed_at"],
             )
             self.agents[agent.agent_id] = agent
             self.api_keys[agent.api_key] = agent.agent_id
+            if agent.claim_token:
+                self.claim_tokens[agent.claim_token] = agent.agent_id
+            if not raw_ct:
+                self._save_agent(agent)
+
+    def _load_claim_sessions(self) -> None:
+        self.claim_sessions.clear()
+        self.claim_verify_tokens.clear()
+        try:
+            rows = self._conn.execute("SELECT * FROM agent_claim_sessions").fetchall()
+        except sqlite3.OperationalError:
+            return
+        for row in rows:
+            s = AgentClaimSession(
+                session_id=row["session_id"],
+                agent_id=row["agent_id"],
+                claim_token=row["claim_token"],
+                email=row["email"],
+                username=row["username"],
+                password_hash=row["password_hash"],
+                email_verify_token=row["email_verify_token"],
+                email_verify_expires_at=row["email_verify_expires_at"],
+                status=row["status"],
+                email_verified_at=row["email_verified_at"],
+                tweet_url=row["tweet_url"],
+                tweet_verified_at=row["tweet_verified_at"],
+                created_at=row["created_at"],
+                updated_at=row["updated_at"],
+            )
+            self.claim_sessions[s.session_id] = s
+            self.claim_verify_tokens[s.email_verify_token] = s.session_id
 
     def _load_tasks(self) -> None:
         for row in self._conn.execute("SELECT payload_json FROM tasks").fetchall():
@@ -279,19 +401,25 @@ class SQLiteStore:
 
     def _save_agent(self, agent: AgentRecord) -> None:
         with self._lock:
+            old = self.agents.get(agent.agent_id)
+            if old and old.claim_token and old.claim_token != agent.claim_token:
+                self.claim_tokens.pop(old.claim_token, None)
             self._conn.execute(
                 """
                 INSERT INTO agents (
                     agent_id, api_key, verification_code, registration_json,
                     status, current_load, max_load, healthy,
-                    last_heartbeat_at, balance, reputation_json
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                    last_heartbeat_at, balance, reputation_json,
+                    claim_token, owner_user_id, claimed_at
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT(agent_id) DO UPDATE SET
                     api_key=excluded.api_key, verification_code=excluded.verification_code,
                     registration_json=excluded.registration_json, status=excluded.status,
                     current_load=excluded.current_load, max_load=excluded.max_load,
                     healthy=excluded.healthy, last_heartbeat_at=excluded.last_heartbeat_at,
-                    balance=excluded.balance, reputation_json=excluded.reputation_json
+                    balance=excluded.balance, reputation_json=excluded.reputation_json,
+                    claim_token=excluded.claim_token, owner_user_id=excluded.owner_user_id,
+                    claimed_at=excluded.claimed_at
                 """,
                 (
                     agent.agent_id, agent.api_key, agent.verification_code,
@@ -299,9 +427,45 @@ class SQLiteStore:
                     agent.status.value, agent.current_load, agent.max_load,
                     int(agent.healthy), agent.last_heartbeat_at, agent.balance,
                     json.dumps(agent.reputation, ensure_ascii=False),
+                    agent.claim_token or None,
+                    agent.owner_user_id,
+                    agent.claimed_at,
                 ),
             )
             self._conn.commit()
+        if agent.claim_token:
+            self.claim_tokens[agent.claim_token] = agent.agent_id
+
+    def _save_claim_session(self, session: AgentClaimSession) -> None:
+        with self._lock:
+            self._conn.execute(
+                """
+                INSERT INTO agent_claim_sessions (
+                    session_id, agent_id, claim_token, email, username, password_hash,
+                    email_verify_token, email_verify_expires_at, email_verified_at,
+                    tweet_url, tweet_verified_at, status, created_at, updated_at
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                ON CONFLICT(session_id) DO UPDATE SET
+                    agent_id=excluded.agent_id, claim_token=excluded.claim_token,
+                    email=excluded.email, username=excluded.username,
+                    password_hash=excluded.password_hash,
+                    email_verify_token=excluded.email_verify_token,
+                    email_verify_expires_at=excluded.email_verify_expires_at,
+                    email_verified_at=excluded.email_verified_at,
+                    tweet_url=excluded.tweet_url, tweet_verified_at=excluded.tweet_verified_at,
+                    status=excluded.status, updated_at=excluded.updated_at
+                """,
+                (
+                    session.session_id, session.agent_id, session.claim_token,
+                    session.email, session.username, session.password_hash,
+                    session.email_verify_token, session.email_verify_expires_at,
+                    session.email_verified_at, session.tweet_url, session.tweet_verified_at,
+                    session.status, session.created_at, session.updated_at,
+                ),
+            )
+            self._conn.commit()
+        self.claim_sessions[session.session_id] = session
+        self.claim_verify_tokens[session.email_verify_token] = session.session_id
 
     def _save_task(self, task: TaskPayload) -> None:
         with self._lock:
@@ -423,11 +587,55 @@ class SQLiteStore:
             verification_code=generate_verification_code(),
             registration=payload,
             max_load=payload.concurrency,
+            claim_token=token_urlsafe(32),
         )
         self.agents[agent_id] = record
         self.api_keys[api_key] = agent_id
         self._save_agent(record)
         return record
+
+    def get_agent_by_claim_token(self, claim_token: str) -> AgentRecord | None:
+        agent_id = self.claim_tokens.get(claim_token)
+        return self.agents.get(agent_id) if agent_id else None
+
+    def get_claim_session_by_verify_token(self, verify_token: str) -> AgentClaimSession | None:
+        sid = self.claim_verify_tokens.get(verify_token)
+        return self.claim_sessions.get(sid) if sid else None
+
+    def expire_open_claim_sessions_for_agent(self, agent_id: str) -> None:
+        for s in list(self.claim_sessions.values()):
+            if s.agent_id != agent_id:
+                continue
+            if s.status in ("completed", "expired"):
+                continue
+            s.status = "expired"
+            s.updated_at = utc_now()
+            self._save_claim_session(s)
+
+    def save_claim_session(self, session: AgentClaimSession) -> None:
+        self._save_claim_session(session)
+
+    def create_user_from_claim(
+        self, *, username: str, password_hash: str, display_name: str
+    ) -> UserRecord:
+        if self.find_user_by_username(username):
+            raise ValueError("username_taken")
+        user = UserRecord(
+            user_id=str(uuid4()),
+            username=username,
+            password_hash=password_hash,
+            display_name=display_name,
+            access_token=f"castor_usr_{token_urlsafe(24)}",
+        )
+        self.users[user.user_id] = user
+        self.user_tokens[user.access_token] = user.user_id
+        self._save_user(user)
+        return user
+
+    def set_agent_owner(self, agent: AgentRecord, user_id: str) -> None:
+        agent.owner_user_id = user_id
+        agent.claimed_at = utc_now()
+        self._save_agent(agent)
 
     def update_agent_heartbeat(
         self,

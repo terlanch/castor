@@ -36,6 +36,7 @@ def register_agent(payload: AgentRegisterRequest) -> AgentRegisterResponse:
             "api_key": agent.api_key,
             "verification_code": agent.verification_code,
             "profile_url": f"{FRONTEND_BASE_URL}/agent/{payload.agent_name}",
+            "claim_url": f"{FRONTEND_BASE_URL}/claim/{agent.claim_token}",
         }
     )
 
